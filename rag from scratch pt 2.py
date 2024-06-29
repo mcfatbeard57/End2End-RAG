@@ -188,5 +188,225 @@ final_rag_chain.invoke({"question":question})
 
 
 #### Decomposition ####
+from langchain.prompts import ChatPromptTemplate
+
+# Decomposition
+template = """You are a helpful assistant that generates multiple sub-questions related to an input question. \n
+The goal is to break down the input into a set of sub-problems / sub-questions that can be answers in isolation. \n
+Generate multiple search queries related to: {question} \n
+Output (3 queries):"""
+prompt_decomposition = ChatPromptTemplate.from_template(template)
+from langchain_openai import ChatOpenAI
+from langchain_core.output_parsers import StrOutputParser
+
+# LLM
+llm = ChatOpenAI(temperature=0)
+
+# Chain
+generate_queries_decomposition = ( prompt_decomposition | llm | StrOutputParser() | (lambda x: x.split("\n")))
+
+# Run
+question = "What are the main components of an LLM-powered autonomous agent system?"
+questions = generate_queries_decomposition.invoke({"question":question})
+questions
+
+
+
+# Papers:
+# https://arxiv.org/pdf/2205.10625.pdf
+# https://arxiv.org/abs/2212.10509.pdf
+
+
+# Prompt
+template = """Here is the question you need to answer:
+
+\n --- \n {question} \n --- \n
+
+Here is any available background question + answer pairs:
+
+\n --- \n {q_a_pairs} \n --- \n
+
+Here is additional context relevant to the question: 
+
+\n --- \n {context} \n --- \n
+
+Use the above context and any background question + answer pairs to answer the question: \n {question}
+"""
+
+decomposition_prompt = ChatPromptTemplate.from_template(template)
+from operator import itemgetter
+from langchain_core.output_parsers import StrOutputParser
+
+def format_qa_pair(question, answer):
+    """Format Q and A pair"""
+    
+    formatted_string = ""
+    formatted_string += f"Question: {question}\nAnswer: {answer}\n\n"
+    return formatted_string.strip()
+
+# llm
+llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
+
+q_a_pairs = ""
+for q in questions:
+    
+    rag_chain = (
+    {"context": itemgetter("question") | retriever, 
+     "question": itemgetter("question"),
+     "q_a_pairs": itemgetter("q_a_pairs")} 
+    | decomposition_prompt
+    | llm
+    | StrOutputParser())
+
+    answer = rag_chain.invoke({"question":q,"q_a_pairs":q_a_pairs})
+    q_a_pair = format_qa_pair(q,answer)
+    q_a_pairs = q_a_pairs + "\n---\n"+  q_a_pair
+
+
+
+
+# Answer each sub-question individually 
+
+from langchain import hub
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from langchain_core.output_parsers import StrOutputParser
+from langchain_openai import ChatOpenAI
+
+# RAG prompt
+prompt_rag = hub.pull("rlm/rag-prompt")
+
+def retrieve_and_rag(question,prompt_rag,sub_question_generator_chain):
+    """RAG on each sub-question"""
+    
+    # Use our decomposition / 
+    sub_questions = sub_question_generator_chain.invoke({"question":question})
+    
+    # Initialize a list to hold RAG chain results
+    rag_results = []
+    
+    for sub_question in sub_questions:
+        
+        # Retrieve documents for each sub-question
+        retrieved_docs = retriever.get_relevant_documents(sub_question)
+        
+        # Use retrieved documents and sub-question in RAG chain
+        answer = (prompt_rag | llm | StrOutputParser()).invoke({"context": retrieved_docs, 
+                                                                "question": sub_question})
+        rag_results.append(answer)
+    
+    return rag_results,sub_questions
+
+# Wrap the retrieval and RAG process in a RunnableLambda for integration into a chain
+answers, questions = retrieve_and_rag(question, prompt_rag, generate_queries_decomposition)
+
+
+
+
+
+def format_qa_pairs(questions, answers):
+    """Format Q and A pairs"""
+    
+    formatted_string = ""
+    for i, (question, answer) in enumerate(zip(questions, answers), start=1):
+        formatted_string += f"Question {i}: {question}\nAnswer {i}: {answer}\n\n"
+    return formatted_string.strip()
+
+context = format_qa_pairs(questions, answers)
+
+# Prompt
+template = """Here is a set of Q+A pairs:
+
+{context}
+
+Use these to synthesize an answer to the question: {question}
+"""
+
+prompt = ChatPromptTemplate.from_template(template)
+
+final_rag_chain = (
+    prompt
+    | llm
+    | StrOutputParser()
+)
+
+final_rag_chain.invoke({"context":context,"question":question})
+
+
+
+
+# Paper:
+# https://arxiv.org/pdf/2310.06117.pdf
+
+
+# Few Shot Examples
+from langchain_core.prompts import ChatPromptTemplate, FewShotChatMessagePromptTemplate
+examples = [
+    {
+        "input": "Could the members of The Police perform lawful arrests?",
+        "output": "what can the members of The Police do?",
+    },
+    {
+        "input": "Jan Sindel’s was born in what country?",
+        "output": "what is Jan Sindel’s personal history?",
+    },
+]
+# We now transform these to example messages
+example_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("human", "{input}"),
+        ("ai", "{output}"),
+    ]
+)
+few_shot_prompt = FewShotChatMessagePromptTemplate(
+    example_prompt=example_prompt,
+    examples=examples,
+)
+prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """You are an expert at world knowledge. Your task is to step back and paraphrase a question to a more generic step-back question, which is easier to answer. Here are a few examples:""",
+        ),
+        # Few shot examples
+        few_shot_prompt,
+        # New question
+        ("user", "{question}"),
+    ]
+)
+generate_queries_step_back = prompt | ChatOpenAI(temperature=0) | StrOutputParser()
+question = "What is task decomposition for LLM agents?"
+generate_queries_step_back.invoke({"question": question})
+
+
+# Response prompt 
+response_prompt_template = """You are an expert of world knowledge. I am going to ask you a question. Your response should be comprehensive and not contradicted with the following context if they are relevant. Otherwise, ignore them if they are not relevant.
+
+# {normal_context}
+# {step_back_context}
+
+# Original Question: {question}
+# Answer:"""
+response_prompt = ChatPromptTemplate.from_template(response_prompt_template)
+
+chain = (
+    {
+        # Retrieve context using the normal question
+        "normal_context": RunnableLambda(lambda x: x["question"]) | retriever,
+        # Retrieve context using the step-back question
+        "step_back_context": generate_queries_step_back | retriever,
+        # Pass on the question
+        "question": lambda x: x["question"],
+    }
+    | response_prompt
+    | ChatOpenAI(temperature=0)
+    | StrOutputParser()
+)
+
+chain.invoke({"question": question})
+
+
+
+
 
 
