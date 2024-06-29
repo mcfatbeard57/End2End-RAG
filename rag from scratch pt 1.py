@@ -65,25 +65,52 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size=300, chunk_over lap=50)
 # Make splits
 splits = text_splitter.split_documents(blog_docs)
-    
-# Index
-from langchain_openai import OpenAIEmbeddings 
-from langchain_community.vectorstores import Chroma
-vectorstore = Chroma.from_documents(documents=splits,embedding=OpenAIEmbeddings() )
-retriever = vectorstore.as_retriever()
-
 
 
 # part 3 Retrieval
 
+# Index
+from langchain_openai import OpenAIEmbeddings 
+from langchain_community.vectorstores import Chroma
+vectorstore = Chroma. from_documents(documents=splits, embedding=0penAIEmbeddings ())
+retriever = vectorstore.as_retriever(search_kwargs=("k": 1}) #k is number of nearby documents to be retirved
+
+docs = retriever-get_relevant_documents("What is Task Decomposition?")
 
 
 
+# part 4 Generation
+
+from langchain_openai import ChatOpenAI 
+from langchain.prompts import ChatPromptTemplate
+# Prompt
+{context}
+template = '''Answer the question based only on the following context: Question: {question}'''
+prompt = ChatPromptTemplate.from_template(template)
+print(prompt)
+
+# LLM
+11m = ChatOpenAI (model_name="gpt-3.5-turbo", temperature=0)
+
+# Chain
+chain = prompt | 11m
+
+# Run
+chain. invoke({"context":docs, "question":"What is Task Decomposition?"})
+
+from langchain import hub
+prompt_hub_rag = hub.pull("rlm/rag-prompt")
 
 
-
-
-
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+rag_chain = (
+{"context": retriever, "question": RunnablePassthrough()}
+| prompt
+| l1m
+| StrOutputParser ()
+)
+rag_chain.invoke("What is Task Decomposition?")
 
 
 
