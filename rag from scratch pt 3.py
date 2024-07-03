@@ -150,11 +150,35 @@ print(chain.invoke("What's a black hole"))
 
 
 # Query Construction
+# For graph and SQL, see helpful resources:
+
+# https://blog.langchain.dev/query-construction/
+
+# https://blog.langchain.dev/enhancing-rag-based-applications-accuracy-by-constructing-and-leveraging-knowledge-graphs/
 
 # Part 11: Query structuring for metadata filters
 
+"""
+Many vectorstores contain metadata fields.
+
+This makes it possible to filter for specific chunks based on metadata.
+
+Let's look at some example metadata we might see in a database of YouTube transcripts.
+
+
+"""
+
 #Docs: https://python.langchain.com/docs/use_cases/query_analysis/techniques/structuring
 
+"""
+Let’s assume we’ve built an index that:
+
+Allows us to perform unstructured search over the contents and title of each document
+And to use range filtering on view count, publication date, and length.
+We want to convert natural langugae into structured search queries.
+
+We can define a schema for structured search queries.
+"""
 
 from langchain_community.document_loaders import YoutubeLoader
 
@@ -251,3 +275,8 @@ query_analyzer.invoke(
         "question": "how to use multi-modal models in an agent, only videos under 5 minutes"
     }
 ).pretty_print()
+
+
+
+
+# To then connect this to various vectorstores, you can follow here.
