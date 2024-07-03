@@ -136,7 +136,7 @@ compression_retriever = ContextualCompressionRetriever(
 )
 
 compressed_docs = compression_retriever.get_relevant_documents(question)
-
+retriever = vectorstore.as_retriever()
 
 
 
@@ -175,5 +175,3 @@ https://docs.google.com/presentation/d/1mJUiPBdtf58NfuSEQ7pVSEQ2Oqmek7F1i4gBwR6J
 
 """
 
-
-retriever = vectorstore.as_retriever()
